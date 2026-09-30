@@ -39,7 +39,7 @@ export const CartProvider = ({ children }) => {
           price: product.price,
           image: product.image,
           qty: 1,
-          id: null, // backend id will come next
+          id: null, 
         },
       ];
     });
@@ -67,41 +67,48 @@ export const CartProvider = ({ children }) => {
     }
   };
 
-  const updateQty = async (cartItemId, qty) => {
-    if (!cartItemId) return;
-    
-    if (qty < 1) {
-      removeFromCart(cartItemId);
-      return;
-    }
+  const updateQty = async (cartItemId, qty, productId) => {
+  if (qty < 1) {
+    removeFromCart(cartItemId || productId);
+    return;
+  }
 
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === cartItemId ? { ...item, qty } : item
-      )
-    );
+  // Update frontend/localStorage for both guest and logged-in users
+  setCartItems((prev) =>
+    prev.map((item) =>
+      item.id === cartItemId || item.productId === productId
+        ? { ...item, qty }
+        : item
+    )
+  );
 
-    if (token) {
-      try {
-        await fetch(`${import.meta.env.VITE_API_URL}/cart/update/${cartItemId}`, {
+  // Only logged-in users have backend cart
+  if (token && cartItemId) {
+    try {
+      await fetch(
+        `${import.meta.env.VITE_API_URL}/cart/update/${cartItemId}`,
+        {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ qty }),
-        });
-      } catch (err) {
-        console.error("Update qty backend failed", err);
-      }
+        }
+      );
+    } catch (err) {
+      console.error("Update qty backend failed", err);
     }
-  };
+  }
+};
 
-  const removeFromCart = (cartItemId) => {
-    setCartItems((prev) =>
-      prev.filter((item) => item.id !== cartItemId && item.productId !== cartItemId)
-    );
-  };
+  const removeItem = (cartItemId) => {
+  setCartItems((prev) =>
+    prev.filter(
+      (item) => item.id !== cartItemId && item.productId !== cartItemId
+    )
+  );
+};
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -112,7 +119,7 @@ export const CartProvider = ({ children }) => {
         cartItems,
         addToCart,
         updateQty,
-        removeFromCart,
+        removeItem,
         setCartItems,
         totalItems,
         totalPrice,

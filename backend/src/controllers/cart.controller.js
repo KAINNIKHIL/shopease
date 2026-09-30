@@ -63,9 +63,6 @@ export const removeCartItem = async (req, res) => {
 
 
 export const addToCart = async (req, res) => {
-  //console.log("ADD TO CART HIT");
-  //console.log("USER:", req.user);
-  //console.log("BODY:", req.body);
 
   const userId = req.user?.id;
   const { productId, qty = 1 } = req.body;

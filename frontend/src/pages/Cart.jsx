@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import api from "../services/axios"
 
 const Cart = () => {
-  const { cartItems, updateQty, totalPrice, totalItems, setCartItems } = useCart();
+  const { cartItems, updateQty, totalPrice, totalItems, setCartItems, removeItem } = useCart();
   const navigate = useNavigate();
  // const { token } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -15,15 +15,7 @@ const Cart = () => {
     setLoading(false); 
   }, []);
 
-  const removeItem = async (cartItemId) => {
-    try {
-      await api.delete(`/cart/remove/${cartItemId}`, {
-      });
-      setCartItems((prev) => prev.filter((item) => item.id !== cartItemId));
-    } catch (err) {
-      console.error("Remove item failed", err);
-    }
-  };
+ 
 
   return (
     <>
@@ -93,7 +85,7 @@ const Cart = () => {
                           {/* QTY */}
                           <div className="flex items-center rounded-lg overflow-hidden border border-gray-400">
                             <button
-                              onClick={() => updateQty(item.id, Math.max(0, item.qty - 1))}
+                              onClick={() => updateQty(item.id, Math.max(0, item.qty - 1), item.productId)}
                               className="px-3 py-1 text-lg transition active:scale-[0.95]"
                             >
                               −
@@ -102,7 +94,7 @@ const Cart = () => {
                             <span className="px-4 font-medium" style={{ color: "var(--text-main)" }}>{item.qty}</span>
 
                             <button
-                              onClick={() => updateQty(item.id, item.qty + 1)}
+                              onClick={() => updateQty(item.id, item.qty + 1, item.productId)}
                               className="px-3 py-1 text-lg transition active:scale-[0.95]"
                             >
                               +
@@ -113,12 +105,12 @@ const Cart = () => {
                           <div className="text-right">
                             <p className="font-semibold" style={{ color: "var(--text-main)" }}>₹{subtotal}</p>
                             <button
-                              onClick={() => removeItem(item.id)}
-                              className="text-xs mt-1"
-                              style={{ color: "var(--primary)" }}
-                            >
-                              Remove
-                            </button>
+  onClick={() => removeItem(item.id || item.productId)}
+  className="text-xs mt-1"
+  style={{ color: "var(--primary)" }}
+>
+  Remove
+</button>
                           </div>
                         </div>
                       </div>
