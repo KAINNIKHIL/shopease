@@ -170,19 +170,7 @@ const Navbar = () => {
                 className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-secondary)]/60"
               />
 
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery("");
-                    setResults([]);
-                  }}
-                  aria-label="Clear search"
-                  className="mr-2 rounded-lg p-1.5 text-[var(--text-secondary)] hover:bg-gray-200 hover:text-[var(--text-main)]"
-                >
-                  <X size={16} />
-                </button>
-              )}
+              
 
               <button
                 type="submit"
