@@ -1,9 +1,36 @@
 import { stripePromise } from "../utils/stripe";
 
+/**
+ * Handles initiation of Stripe Checkout session and navigation.
+ * 
+ * @param {Array} cartItems - Current items in cart
+ * @param {string} token - User auth JWT
+ * @param {Function} setLoading - State updater for loading state
+ * @param {Function} setError - State updater for error message
+ */
 const handleCheckout = async (cartItems, token, setLoading, setError) => {
+  let isRedirecting = false;
+
   try {
     setLoading(true);
     setError("");
+
+    if (!token) {
+      throw new Error("Please log in before checkout.");
+    }
+
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      throw new Error("Your cart is empty.");
+    }
+
+    const payload = {
+      items: cartItems.map((item) => ({
+        productId: item.productId || item.id,
+        name: item.title || item.name || "Product",
+        price: Number(item.price) || 0,
+        quantity: Number(item.qty || item.quantity) || 1,
+      })),
+    };
 
     const response = await fetch(
       `${import.meta.env.VITE_API_URL}/payment/create-checkout-session`,
@@ -13,42 +40,52 @@ const handleCheckout = async (cartItems, token, setLoading, setError) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          items: cartItems.map((item) => ({
-            productId: item.productId,
-            name: item.title,
-            price: item.price,
-            quantity: item.qty,
-          })),
-        }),
+        body: JSON.stringify(payload),
       }
     );
 
+    const data = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData.message || "Failed to create checkout session");
+      throw new Error(
+        data.message || data.error || "Failed to create checkout session."
+      );
     }
 
-    const data = await response.json();
+    // 1. Preferred modern Stripe workflow: direct session URL redirect
+    if (data.url) {
+      isRedirecting = true;
+      window.location.assign(data.url);
+      return;
+    }
+
+    // 2. Fallback to client-side SDK redirectToCheckout if backend only returns session ID
+    const sessionId = data.id || data.sessionId;
+    if (!sessionId) {
+      throw new Error("Checkout session URL or ID was not returned by the server.");
+    }
 
     const stripe = await stripePromise;
-
     if (!stripe) {
-      throw new Error("Stripe failed to load");
+      throw new Error("Stripe failed to initialize. Please check your connection.");
     }
 
-    const { error } = await stripe.redirectToCheckout({
-      sessionId: data.id,
-    });
+    isRedirecting = true;
+    const { error } = await stripe.redirectToCheckout({ sessionId });
 
     if (error) {
+      isRedirecting = false;
       throw new Error(error.message);
     }
-
   } catch (err) {
-    console.error(err);
-    setError(err.message || "Payment failed");
+    console.error("Checkout error:", err);
+    setError(err.message || "Payment initiation failed. Please try again.");
   } finally {
-    setLoading(false);
+    // Only reset loading if we didn't initiate an active window navigation
+    if (!isRedirecting) {
+      setLoading(false);
+    }
   }
 };
+
+export default handleCheckout;
