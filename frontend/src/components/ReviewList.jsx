@@ -1,112 +1,129 @@
-import { Star } from "lucide-react";
+import { Star, Pencil, MessageSquareText } from "lucide-react";
 
-const ReviewList = ({ reviews, currentUserId, onEdit, loading }) => {
-  // If loading, show 3 skeletons
+const ReviewListSkeleton = () => (
+  <div className="mt-6 space-y-4" aria-label="Loading reviews">
+    {Array.from({ length: 3 }, (_, idx) => (
+      <div key={idx} className="card p-5 sm:p-6">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="animate-skeleton h-11 w-11 shrink-0 rounded-full" />
+
+          <div className="flex-1 space-y-2 pt-1">
+            <div className="animate-skeleton h-4 w-28 rounded-md" />
+            <div className="animate-skeleton h-3 w-24 rounded-md" />
+          </div>
+
+          <div className="animate-skeleton h-8 w-16 rounded-lg" />
+        </div>
+
+        <div className="space-y-2">
+          <div className="animate-skeleton h-3 w-full rounded-md" />
+          <div className="animate-skeleton h-3 w-11/12 rounded-md" />
+          <div className="animate-skeleton h-3 w-2/3 rounded-md" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const ReviewList = ({ reviews = [], currentUserId, onEdit, loading }) => {
   if (loading) {
-    return (
-      <div className="space-y-6 mt-6">
-        {Array(3)
-          .fill(0)
-          .map((_, idx) => (
-            <div
-              key={idx}
-              className="border rounded-xl p-5 shadow-sm animate-skeleton"
-              style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--text-secondary)" }}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                  {/* Avatar Skeleton */}
-                  <div className="w-10 h-10 rounded-full bg-gray-300 animate-skeleton" />
-                  <div className="flex flex-col gap-1">
-                    {/* Username Skeleton */}
-                    <div className="w-20 h-4 bg-gray-300 rounded animate-skeleton" />
-                    {/* Stars Skeleton */}
-                    <div className="flex gap-1 mt-1">
-                      {Array(5)
-                        .fill(0)
-                        .map((_, i) => (
-                          <div key={i} className="w-4 h-4 bg-gray-300 rounded animate-skeleton" />
-                        ))}
-                    </div>
-                  </div>
-                </div>
-                {/* Edit button skeleton */}
-                <div className="w-12 h-6 bg-gray-300 rounded animate-skeleton" />
-              </div>
+    return <ReviewListSkeleton />;
+  }
 
-              {/* Comment Skeleton */}
-              <div className="w-full h-16 bg-gray-300 rounded animate-skeleton" />
-            </div>
-          ))}
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    return (
+      <div className="card mt-6 px-5 py-10 text-center sm:py-12">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-[var(--primary)]">
+          <MessageSquareText size={27} />
+        </div>
+
+        <h3 className="text-base font-bold text-[var(--text-main)]">
+          No reviews yet
+        </h3>
+
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[var(--text-secondary)]">
+          Be the first to share your experience with this product.
+        </p>
       </div>
     );
   }
 
-  // Render actual reviews
   return (
-    <div className="space-y-6 mt-6">
+    <section className="mt-6 space-y-4" aria-label="Customer reviews">
       {reviews.map((review) => {
         const username = review.user?.username || "Anonymous";
         const isCurrentUser = review.userId === currentUserId;
+        const rating = Math.min(
+          5,
+          Math.max(0, Number(review.rating) || 0)
+        );
 
         return (
-          <div
+          <article
             key={review.id}
-            className="border rounded-xl p-5 shadow-sm"
-            style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--text-secondary)" }}
+            className="card p-5 transition-all duration-300 hover:border-indigo-200 hover:shadow-md sm:p-6"
           >
-            <div className="flex justify-between items-start">
-              <div className="flex items-center gap-3">
-                {/* Avatar */}
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold"
-                  style={{ backgroundColor: "var(--bg-main)", color: "var(--text-main)" }}
-                >
+            {/* Reviewer information */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-base font-bold text-[var(--primary)] ring-4 ring-indigo-50/60">
                   {username.charAt(0).toUpperCase()}
                 </div>
 
-                <div>
-                  <p className="font-medium" style={{ color: "var(--text-main)" }}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--text-main)] sm:text-base">
                     {username}
                   </p>
 
-                  {/* Stars */}
-                  <div className="flex items-center gap-1 mt-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        size={16}
-                        style={{
-                          color: star <= review.rating ? "var(--primary)" : "var(--text-secondary)",
-                          fill: star <= review.rating ? "var(--primary)" : "transparent",
-                        }}
-                      />
-                    ))}
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <div
+                      className="flex items-center gap-0.5"
+                      aria-label={`${rating} out of 5 stars`}
+                    >
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          size={15}
+                          strokeWidth={1.8}
+                          className={
+                            star <= rating
+                              ? "fill-amber-400 text-amber-400"
+                              : "text-gray-200"
+                          }
+                        />
+                      ))}
+                    </div>
+
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">
+                      {rating.toFixed(1)} / 5
+                    </span>
                   </div>
                 </div>
               </div>
 
               {isCurrentUser && (
                 <button
-                  onClick={() => onEdit(review)}
-                  className="text-sm px-3 py-1 border rounded-md transition"
-                  style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
-                  onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-main)")}
-                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                  type="button"
+                  onClick={() => onEdit?.(review)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-[var(--primary)] transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 sm:text-sm"
+                  aria-label="Edit your review"
                 >
+                  <Pencil size={14} />
                   Edit
                 </button>
               )}
             </div>
 
-            {/* Comment */}
-            <p className="mt-4 text-sm md:text-base leading-relaxed" style={{ color: "var(--text-main)" }}>
-              {review.comment}
-            </p>
-          </div>
+            {/* Review comment */}
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <p className="whitespace-pre-line break-words text-sm leading-7 text-[var(--text-main)] sm:text-base">
+                {review.comment || "No comment provided."}
+              </p>
+            </div>
+          </article>
         );
       })}
-    </div>
+    </section>
   );
 };
 
