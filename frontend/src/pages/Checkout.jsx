@@ -1,298 +1,733 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  MapPin,
+  Phone,
+  CreditCard,
+  Banknote,
+  ShieldCheck,
+  ArrowLeft,
+  ArrowRight,
+  ShoppingBag,
+  LoaderCircle,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
+
 import Navbar from "../components/Navbar";
 import { useCart } from "../hooks/useCart";
-import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import api from "../services/axios";
+
+const formatPrice = (price) =>
+  `₹${Number(price || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  })}`;
+
+const initialAddress = {
+  phone: "",
+  address: "",
+  city: "",
+  state: "",
+  pincode: "",
+};
 
 const Checkout = () => {
   const { cartItems, totalPrice, setCartItems } = useCart();
   const { token } = useAuth();
   const navigate = useNavigate();
 
-  const [address, setAddress] = useState({
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    pincode: "",
-  });
-
+  const [address, setAddress] = useState(initialAddress);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fetchingAddress, setFetchingAddress] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState("stripe");
 
   const isCartEmpty = cartItems.length === 0;
 
-  // Fetch last saved address
-useEffect(() => {
-  const fetchLastAddress = async () => {
-    if (!token) return;
+  useEffect(() => {
+    let active = true;
 
-    try {
-      setFetchingAddress(true);
-
-      const { data: addresses } = await api.get("/addresses");
-
-      if (addresses?.length > 0) {
-        const last = addresses[addresses.length - 1];
-
-        setAddress({
-          phone: last.phone,
-          address: last.fullAddress,
-          city: last.city,
-          state: last.state,
-          pincode: last.pincode,
-        });
+    const fetchLastAddress = async () => {
+      if (!token) {
+        setFetchingAddress(false);
+        return;
       }
-    } catch (err) {
-      console.error(
-        "Fetch last address error:",
-        err.response?.data || err.message
-      );
-    } finally {
-      setFetchingAddress(false);
-    }
-  };
 
-  fetchLastAddress();
-}, [token]);
+      try {
+        setFetchingAddress(true);
 
+        const { data } = await api.get("/addresses");
+
+        if (!active) return;
+
+        const addresses = Array.isArray(data)
+          ? data
+          : data?.addresses || [];
+
+        if (addresses.length > 0) {
+          const last = addresses[addresses.length - 1];
+
+          setAddress({
+            phone: last.phone || "",
+            address: last.fullAddress || "",
+            city: last.city || "",
+            state: last.state || "",
+            pincode: last.pincode || "",
+          });
+        }
+      } catch (err) {
+        console.error(
+          "Fetch last address error:",
+          err.response?.data || err.message
+        );
+      } finally {
+        if (active) setFetchingAddress(false);
+      }
+    };
+
+    fetchLastAddress();
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   const handleChange = (e) => {
-    setAddress({ ...address, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+
+    setAddress((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+
+    setError("");
   };
 
   const validate = () => {
-    if (isCartEmpty) {
-      setError("Your cart is empty!");
+    if (!token) {
+      setError("Please log in before placing your order.");
       return false;
     }
 
-    for (let key of Object.keys(address)) {
-      if (!address[key].trim()) {
-        setError(`Please enter ${key}`);
+    if (isCartEmpty) {
+      setError("Your cart is empty. Add products before checkout.");
+      return false;
+    }
+
+    for (const [key, value] of Object.entries(address)) {
+      if (!value.trim()) {
+        setError(
+          `Please enter your ${
+            key === "address" ? "full address" : key
+          }.`
+        );
         return false;
       }
+    }
+
+    if (!/^\d{10}$/.test(address.phone.trim())) {
+      setError("Enter a valid 10-digit phone number.");
+      return false;
+    }
+
+    if (!/^\d{6}$/.test(address.pincode.trim())) {
+      setError("Enter a valid 6-digit PIN code.");
+      return false;
     }
 
     setError("");
     return true;
   };
 
-  const placeOrder = async (paymentMethod = "stripe") => {
-    if (!validate()) return;
+  const placeOrder = async (method = paymentMethod) => {
+    if (loading || !validate()) return;
 
     setLoading(true);
+    setError("");
 
     try {
-      // Save address
-      const addressRes = await fetch(`${import.meta.env.VITE_API_URL}/addresses`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(address),
-      });
+      const addressResponse = await api.post("/addresses", address);
+      const savedAddress = addressResponse.data;
 
-      const savedAddress = await addressRes.json();
-      if (!addressRes.ok) throw new Error(savedAddress.message);
-
-      const itemsPayload = cartItems.map((item) => ({
-        productId: item.productId,
-        name: item.title || item.product?.title,
-        price: item.price,
-        qty: item.qty,
-      }));
-
-      if (paymentMethod === "stripe") {
-        const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/payment/create-checkout-session`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              items: itemsPayload,
-              addressId: savedAddress.id,
-            }),
-          }
-        );
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "Stripe session failed");
-
-        window.location.href = data.url;
+      if (!savedAddress?.id) {
+        throw new Error("Could not save your delivery address.");
       }
 
-      if (paymentMethod === "cod") {
-        const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/orders/create-cod-order`,
+      const itemsPayload = cartItems.map((item) => ({
+        productId: item.productId || item.product?.id,
+        name: item.product?.title || item.title,
+        price: Number(item.product?.price ?? item.price ?? 0),
+        qty: Number(item.qty),
+      }));
+
+      if (
+        itemsPayload.some(
+          (item) =>
+            !item.productId ||
+            !Number.isFinite(item.price) ||
+            item.price < 0 ||
+            !Number.isInteger(item.qty) ||
+            item.qty < 1
+        )
+      ) {
+        throw new Error("Some cart items are invalid. Please review your cart.");
+      }
+
+      if (method === "stripe") {
+        const { data } = await api.post(
+          "/payment/create-checkout-session",
           {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              items: itemsPayload,
-              addressId: savedAddress.id,
-            }),
+            items: itemsPayload,
+            addressId: savedAddress.id,
           }
         );
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "COD order failed");
+        if (!data?.url) {
+          throw new Error("Unable to start card payment. Please try again.");
+        }
+
+        window.location.href = data.url;
+        return;
+      }
+
+      if (method === "cod") {
+        const { data } = await api.post("/orders/create-cod-order", {
+          items: itemsPayload,
+          addressId: savedAddress.id,
+        });
+
+        if (!data?.order?.id) {
+          throw new Error("Your COD order could not be confirmed.");
+        }
 
         setCartItems([]);
         navigate(`/cod-success/${data.order.id}`);
       }
     } catch (err) {
-      console.error(err);
-      setError(err.message);
+      console.error(
+        "Checkout error:",
+        err.response?.data || err.message
+      );
+
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          "Something went wrong. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const inputClass =
+    "w-full rounded-xl border border-gray-300 bg-[var(--bg-main)] px-4 py-3 text-sm text-[var(--text-main)] outline-none transition placeholder:text-[var(--text-secondary)]/60 focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-indigo-900/10";
+
   return (
     <>
       <Navbar />
 
-      <div className="max-w-6xl mx-auto p-4 pb-32 md:pb-6 bg-[var(--bg-main)] text-[var(--text-main)]">
-        <h1 className="text-2xl font-semibold mb-6">Checkout</h1>
-
-        {error && (
-          <div className="bg-red-900/20 text-red-400 p-3 rounded-lg mb-4 border border-red-800">
-            {error}
-          </div>
-        )}
-
-        <div className="grid md:grid-cols-3 gap-6">
-          {/* ADDRESS */}
-          <div className="md:col-span-2 border border-[var(--border-color)] rounded-xl p-5 bg-[var(--card-bg)]">
-            <h2 className="font-semibold mb-4 text-lg">Delivery Address</h2>
-
-            {fetchingAddress ? (
-              <div className="animate-pulse space-y-3">
-                {Array(5)
-                  .fill(0)
-                  .map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-10 bg-gray-300 rounded-lg w-full"
-                    />
-                  ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {["phone", "city", "state", "pincode"].map((field) => (
-                  <input
-                    key={field}
-                    name={field}
-                    placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                    value={address[field]}
-                    onChange={handleChange}
-                    className={`border p-3 rounded-lg bg-transparent text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]
-                      ${error.includes(field) ? "border-red-400" : "border-[var(--border-color)]"}
-                    `}
-                  />
-                ))}
-
-                <textarea
-                  name="address"
-                  placeholder="Full Address"
-                  value={address.address}
-                  onChange={handleChange}
-                  rows={3}
-                  className={`border p-3 rounded-lg md:col-span-2 bg-transparent text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]
-                    ${error.includes("address") ? "border-red-400" : "border-[var(--border-color)]"}
-                  `}
-                />
-              </div>
-            )}
+      <main className="min-h-screen bg-[var(--bg-main)] pb-36 md:pb-12">
+        <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 md:py-10 lg:px-8">
+          {/* Breadcrumb */}
+          <div className="mb-6 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <button
+              onClick={() => navigate("/")}
+              className="hover:underline hover:text-[var(--primary)]"
+            >
+              Home
+            </button>
+            <span>/</span>
+            <button
+              onClick={() => navigate("/cart")}
+              className="hover:underline hover:text-[var(--primary)]"
+            >
+              Cart
+            </button>
+            <span>/</span>
+            <span className="font-medium text-[var(--text-main)]">Checkout</span>
           </div>
 
-          {/* ORDER SUMMARY */}
-          <div className="border border-[var(--border-color)] rounded-xl p-5 h-fit bg-[var(--card-bg)]">
-            <h2 className="font-semibold mb-4 text-lg">Order Summary</h2>
+          {/* Heading */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold tracking-tight text-[var(--text-main)] md:text-3xl">
+              Checkout
+            </h1>
+            <p className="mt-2 text-sm text-[var(--text-secondary)] md:text-base">
+              Confirm your delivery details and payment method.
+            </p>
+          </div>
 
-            {cartItems.length === 0 ? (
-              <p className="text-[var(--text-secondary)]">Your cart is empty.</p>
-            ) : (
-              <div className="space-y-3 max-h-60 overflow-auto pr-1">
-                {cartItems.map((item) => (
-                  <div
-                    key={item.productId}
-                    className="flex justify-between text-sm text-[var(--text-secondary)]"
-                  >
+          {/* Checkout steps */}
+          <div className="card mb-7 grid grid-cols-3 p-3 sm:p-4">
+            {[
+              { number: "1", label: "Shopping Cart", done: true },
+              { number: "2", label: "Checkout", active: true },
+              { number: "3", label: "Confirmation" },
+            ].map((step) => (
+              <div
+                key={step.number}
+                className="flex items-center justify-center gap-2"
+              >
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    step.active || step.done
+                      ? "bg-[var(--primary)] text-white shadow-sm"
+                      : "bg-gray-100 text-[var(--text-secondary)]"
+                  }`}
+                >
+                  {step.done ? <CheckCircle2 size={16} /> : step.number}
+                </span>
+                <span
+                  className={`hidden text-xs font-medium sm:inline md:text-sm ${
+                    step.active || step.done
+                      ? "text-[var(--text-main)] font-semibold"
+                      : "text-[var(--text-secondary)]"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Error alert */}
+          {error && (
+            <div
+              role="alert"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              <AlertCircle size={19} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {isCartEmpty ? (
+            <section className="card p-8 text-center sm:p-12">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-indigo-50 text-[var(--primary)]">
+                <ShoppingBag size={36} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-[var(--text-main)]">
+                Your cart is empty
+              </h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                Add something to your cart before checking out.
+              </p>
+
+              <button
+                onClick={() => navigate("/products")}
+                className="btn-primary !w-auto mt-6 inline-flex px-6 py-3 font-semibold shadow-sm"
+              >
+                Explore Products
+              </button>
+            </section>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3 lg:gap-8">
+              {/* Delivery address & Payment */}
+              <section className="space-y-6 lg:col-span-2">
+                <div className="card p-5 sm:p-7">
+                  <div className="mb-6 flex items-center gap-3">
+                    <div className="rounded-xl bg-indigo-50 p-3 text-[var(--primary)]">
+                      <MapPin size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-[var(--text-main)]">
+                        Delivery Address
+                      </h2>
+                      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                        Where should we deliver your order?
+                      </p>
+                    </div>
+                  </div>
+
+                  {fetchingAddress ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {[1, 2, 3, 4].map((item) => (
+                          <div
+                            key={item}
+                            className="animate-skeleton h-12 rounded-xl"
+                          />
+                        ))}
+                      </div>
+                      <div className="animate-skeleton h-24 rounded-xl" />
+                    </div>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        placeOrder(paymentMethod);
+                      }}
+                      className="space-y-4"
+                    >
+                      <div>
+                        <label
+                          htmlFor="phone"
+                          className="mb-2 block text-sm font-medium text-[var(--text-main)]"
+                        >
+                          Phone Number
+                        </label>
+                        <div className="relative">
+                          <Phone
+                            size={17}
+                            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]"
+                          />
+                          <input
+                            id="phone"
+                            name="phone"
+                            type="tel"
+                            inputMode="numeric"
+                            autoComplete="tel"
+                            maxLength={10}
+                            placeholder="10-digit phone number"
+                            value={address.phone}
+                            onChange={handleChange}
+                            className={`${inputClass} pl-10`}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="address"
+                          className="mb-2 block text-sm font-medium text-[var(--text-main)]"
+                        >
+                          Full Address
+                        </label>
+                        <textarea
+                          id="address"
+                          name="address"
+                          autoComplete="street-address"
+                          placeholder="House / flat number, street, locality"
+                          rows={3}
+                          value={address.address}
+                          onChange={handleChange}
+                          className={`${inputClass} resize-y`}
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <label
+                            htmlFor="city"
+                            className="mb-2 block text-sm font-medium text-[var(--text-main)]"
+                          >
+                            City
+                          </label>
+                          <input
+                            id="city"
+                            name="city"
+                            autoComplete="address-level2"
+                            placeholder="Enter city"
+                            value={address.city}
+                            onChange={handleChange}
+                            className={inputClass}
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="state"
+                            className="mb-2 block text-sm font-medium text-[var(--text-main)]"
+                          >
+                            State
+                          </label>
+                          <input
+                            id="state"
+                            name="state"
+                            autoComplete="address-level1"
+                            placeholder="Enter state"
+                            value={address.state}
+                            onChange={handleChange}
+                            className={inputClass}
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="pincode"
+                            className="mb-2 block text-sm font-medium text-[var(--text-main)]"
+                          >
+                            PIN Code
+                          </label>
+                          <input
+                            id="pincode"
+                            name="pincode"
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="postal-code"
+                            maxLength={6}
+                            placeholder="6-digit PIN code"
+                            value={address.pincode}
+                            onChange={handleChange}
+                            className={inputClass}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </form>
+                  )}
+                </div>
+
+                {/* Payment method selection */}
+                <div className="card p-5 sm:p-7">
+                  <h2 className="text-lg font-bold text-[var(--text-main)]">
+                    Payment Method
+                  </h2>
+                  <p className="mb-5 mt-1 text-sm text-[var(--text-secondary)]">
+                    Choose how you'd like to pay.
+                  </p>
+
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("stripe")}
+                      className={`flex w-full items-center gap-4 rounded-xl border p-4 text-left transition ${
+                        paymentMethod === "stripe"
+                          ? "border-[var(--primary)] bg-indigo-50/60 shadow-sm"
+                          : "border-gray-200 bg-[var(--card-bg)] hover:border-indigo-200"
+                      }`}
+                    >
+                      <div className="rounded-xl bg-indigo-50 p-3 text-[var(--primary)]">
+                        <CreditCard size={22} />
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-[var(--text-main)]">
+                          Pay with Card
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                          Continue to secure Stripe checkout
+                        </p>
+                      </div>
+
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                          paymentMethod === "stripe"
+                            ? "border-[var(--primary)]"
+                            : "border-gray-300"
+                        }`}
+                      >
+                        {paymentMethod === "stripe" && (
+                          <span className="h-2.5 w-2.5 rounded-full bg-[var(--primary)]" />
+                        )}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("cod")}
+                      className={`flex w-full items-center gap-4 rounded-xl border p-4 text-left transition ${
+                        paymentMethod === "cod"
+                          ? "border-[var(--primary)] bg-indigo-50/60 shadow-sm"
+                          : "border-gray-200 bg-[var(--card-bg)] hover:border-indigo-200"
+                      }`}
+                    >
+                      <div className="rounded-xl bg-indigo-50 p-3 text-[var(--primary)]">
+                        <Banknote size={22} />
+                      </div>
+
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-[var(--text-main)]">
+                          Cash on Delivery
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                          Pay when your order arrives
+                        </p>
+                      </div>
+
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                          paymentMethod === "cod"
+                            ? "border-[var(--primary)]"
+                            : "border-gray-300"
+                        }`}
+                      >
+                        {paymentMethod === "cod" && (
+                          <span className="h-2.5 w-2.5 rounded-full bg-[var(--primary)]" />
+                        )}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {/* Order summary */}
+              <aside className="card p-5 sm:p-6 lg:sticky lg:top-24">
+                <h2 className="text-lg font-bold text-[var(--text-main)]">
+                  Order Summary
+                </h2>
+
+                <div className="mt-5 max-h-72 space-y-4 overflow-y-auto pr-1">
+                  {cartItems.map((item) => {
+                    const name =
+                      item.product?.title || item.title || "Product";
+                    const price = Number(
+                      item.product?.price ?? item.price ?? 0
+                    );
+                    const image =
+                      item.product?.images?.[0] ||
+                      item.image ||
+                      item.product?.image;
+
+                    return (
+                      <div
+                        key={item.id || item.productId}
+                        className="flex items-center gap-3"
+                      >
+                        <div className="relative flex mt-2 h-14 w-14 shrink-0 items-center justify-center  rounded-xl bg-gradient-to-br from-indigo-50/40 to-gray-50/70">
+                          {image ? (
+                            <img
+                              src={image}
+                              alt={name}
+                              className="h-full w-full object-contain p-1.5"
+                            />
+                          ) : (
+                            <ShoppingBag
+                              size={20}
+                              className="text-[var(--text-secondary)]"
+                            />
+                          )}
+
+                          <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-bold text-white shadow-sm">
+                            {item.qty}
+                          </span>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 text-sm font-medium text-[var(--text-main)]">
+                            {name}
+                          </p>
+                          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                            {formatPrice(price)} each
+                          </p>
+                        </div>
+
+                        <p className="shrink-0 text-sm font-semibold text-[var(--text-main)]">
+                          {formatPrice(price * Number(item.qty || 0))}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="my-5 border-t border-gray-200" />
+
+                <div className="space-y-3">
+                  <div className="flex justify-between gap-3 text-sm text-[var(--text-secondary)]">
                     <span>
-                      {item.title || item.product?.title} × {item.qty}
+                      Items (
+                      {cartItems.reduce(
+                        (sum, item) => sum + Number(item.qty || 0),
+                        0
+                      )}
+                      )
                     </span>
-                    <span className="text-[var(--text-main)]">
-                      ₹{item.price * item.qty}
+                    <span className="font-medium text-[var(--text-main)]">
+                      {formatPrice(totalPrice)}
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
 
-            <hr className="my-4 border-[var(--border-color)]" />
+                  <div className="flex justify-between gap-3 text-sm text-[var(--text-secondary)]">
+                    <span>Shipping</span>
+                    <span className="font-semibold text-emerald-600">Free</span>
+                  </div>
+                </div>
 
-            <div className="flex justify-between font-semibold text-lg">
-              <span>Total</span>
-              <span>₹{totalPrice}</span>
+                <div className="mt-5 border-t border-gray-200 pt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-[var(--text-main)]">
+                      Total
+                    </span>
+                    <span className="text-xl font-bold text-[var(--primary)]">
+                      {formatPrice(totalPrice)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => placeOrder(paymentMethod)}
+                  disabled={loading || fetchingAddress || isCartEmpty}
+                  className="btn-primary mt-6 hidden !w-full items-center justify-center gap-2 py-3.5 font-semibold shadow-sm hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 lg:flex"
+                >
+                  {loading ? (
+                    <>
+                      <LoaderCircle size={18} className="animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      {paymentMethod === "stripe"
+                        ? "Continue to Payment"
+                        : "Place COD Order"}
+                      <ArrowRight size={18} />
+                    </>
+                  )}
+                </button>
+
+                <div className="mt-5 flex items-center justify-center gap-2 text-xs text-[var(--text-secondary)]">
+                  <ShieldCheck size={16} />
+                  Your order details are protected
+                </div>
+              </aside>
             </div>
+          )}
 
-            <div className="mt-6 space-y-3">
-              <button
-                onClick={() => placeOrder("stripe")}
-                disabled={loading || isCartEmpty}
-                className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black transition py-3 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {loading ? "Processing..." : "Pay with Card"}
-              </button>
-
-              <button
-                onClick={() => placeOrder("cod")}
-                disabled={loading || isCartEmpty}
-                className="w-full border border-[var(--border-color)] hover:bg-[var(--card-bg)] transition py-3 rounded-xl text-[var(--text-main)] disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {loading ? "Processing..." : "Cash on Delivery"}
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => navigate("/cart")}
+            className="mt-6 hidden items-center gap-2 text-sm font-semibold text-[var(--text-secondary)] transition hover:gap-3 hover:text-[var(--primary)] md:inline-flex"
+          >
+            <ArrowLeft size={16} />
+            Back to cart
+          </button>
         </div>
-      </div>
+      </main>
 
-      {/* MOBILE STICKY BAR */}
-      {cartItems.length > 0 && (
-        <div className="fixed bottom-0 left-0 w-full bg-[var(--card-bg)] border-t border-[var(--border-color)] md:hidden">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div>
-              <p className="text-sm text-[var(--text-secondary)]">{cartItems.length} items</p>
-              <p className="font-semibold text-lg">₹{totalPrice}</p>
+      {/* Mobile checkout bar */}
+      {!isCartEmpty && (
+        <div className="fixed bottom-0 left-0 z-40 w-full border-t border-gray-200 bg-[var(--card-bg)]/95 p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur-md md:hidden">
+          <div className="mx-auto max-w-7xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  Total amount
+                </p>
+                <p className="text-lg font-bold text-[var(--text-main)]">
+                  {formatPrice(totalPrice)}
+                </p>
+              </div>
+
+              <span className="text-xs font-medium text-[var(--text-secondary)]">
+                {paymentMethod === "stripe" ? "Card payment" : "Cash on Delivery"}
+              </span>
             </div>
 
-            <div className="flex space-x-2">
-              <button
-                onClick={() => placeOrder("stripe")}
-                disabled={loading}
-                className="bg-[var(--primary)] text-black px-4 py-3 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {loading ? "..." : "Card"}
-              </button>
-
-              <button
-                onClick={() => placeOrder("cod")}
-                disabled={loading}
-                className="border border-[var(--border-color)] px-4 py-3 rounded-xl text-[var(--text-main)] disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {loading ? "..." : "COD"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => placeOrder(paymentMethod)}
+              disabled={loading || fetchingAddress || isCartEmpty}
+              className="btn-primary !w-full flex items-center justify-center gap-2 py-3.5 font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <LoaderCircle size={18} className="animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  {paymentMethod === "stripe"
+                    ? "Continue to Payment"
+                    : "Place COD Order"}
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}

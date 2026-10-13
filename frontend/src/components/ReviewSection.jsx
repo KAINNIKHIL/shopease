@@ -191,19 +191,7 @@ const ReviewSection = ({ productId }) => {
             <RatingBreakdown reviews={reviews} />
           </div>
         </div>
-      ) : (
-        <div className="mb-8 rounded-2xl border border-dashed border-gray-300 bg-[var(--card-bg)] px-5 py-8 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-[var(--primary)]">
-            <MessageSquareText size={23} />
-          </div>
-          <h3 className="mt-3 font-semibold text-[var(--text-main)]">
-            No reviews yet
-          </h3>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Be the first to share your experience with this product.
-          </p>
-        </div>
-      )}
+      ) : null}
 
       {/* Write review action */}
       <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -222,16 +210,11 @@ const ReviewSection = ({ productId }) => {
       </div>
 
       {/* Review list */}
-      {fetchError ? null : loading ? (
-        <ReviewList
-          reviews={[]}
-          currentUserId={user?.id}
-          loading
-        />
-      ) : (
+      {fetchError ? null : (
         <ReviewList
           reviews={reviews}
           currentUserId={user?.id}
+          loading={loading}
           onEdit={(review) => {
             setEditingReview(review);
             setShowForm(true);
